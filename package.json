@@ -1,0 +1,25 @@
+{
+  "name": "ai-twitter-aggregator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "vercel dev",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@google/generative-ai": "^0.24.0",
+    "@vercel/functions": "^1.5.0",
+    "postgres": "^3.4.4",
+    "twitter-api-v2": "^1.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "vercel": "^37.0.0",
+    "vitest": "^2.0.0"
+  }
+}
