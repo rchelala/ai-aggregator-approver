@@ -12,7 +12,7 @@ export function getDb(): postgres.Sql {
   if (!_db) {
     const url = process.env['DATABASE_URL'];
     if (!url) throw new Error('Missing env var: DATABASE_URL');
-    _db = postgres(url, { ssl: 'require' });
+    _db = postgres(url, { ssl: 'require', prepare: false });
   }
   return _db;
 }
