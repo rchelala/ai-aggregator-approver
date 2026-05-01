@@ -11,7 +11,9 @@ Automated Twitter/X posting pipeline. Claude researches topics, drafts posts, an
 - **AI:** Anthropic Claude API (`claude-sonnet-4-6` for drafting, `claude-haiku-4-5-20251001` for filtering/scoring)
 - **Twitter:** X API v2 via `twitter-api-v2` npm package
 - **Research:** Claude's `web_search` tool (built-in, no separate search API needed)
-- **Storage:** Supabase (post history, topic queue, analytics)
+- **Storage:** Neon Postgres (pooled, PgBouncer transaction mode), accessed via the `postgres` npm driver
+- **Notifications / approvals:** Slack (Block Kit, slash actions) + optional email-style review channel
+- **Image generation (optional):** Google Gemini API
 - **Hosting:** Vercel (serverless functions + cron)
 
 ## Development Commands
@@ -39,7 +41,7 @@ curl http://localhost:3000/api/cron/post-tweet
 ## Architecture
 
 ```
-[Cron trigger] → [Research agent] → [Draft agent] → [Review/Score] → [Post to X] → [Log to Supabase]
+[Cron trigger] → [Research agent] → [Draft agent] → [Review/Score] → [Post to X] → [Log to Neon]
 ```
 
 Three Claude calls per post:
@@ -56,6 +58,12 @@ Three Claude calls per post:
   /manual
     draft-now.ts           # On-demand draft (returns variants, no auto-post)
     approve.ts             # Approve a queued draft and post it
+    reject.ts              # Reject a queued draft (records reason)
+    list-queue.ts          # List currently queued drafts
+    slack-action.ts        # Slack interactive-button webhook target
+  /internal
+    health.ts              # Operational health snapshot (last post, skip rate, 7d cost)
+    cost.ts                # 7-day API spend by provider
 /lib
   /agents
     research.ts            # Research agent (Claude + web_search)
@@ -64,13 +72,17 @@ Three Claude calls per post:
   /clients
     anthropic.ts           # Claude API wrapper
     twitter.ts             # X API wrapper
-    supabase.ts            # DB client
+    neon.ts                # DB client (postgres driver, pooled — must use prepare:false)
+    slack.ts               # Slack notifications + signed-action verification
+    gemini.ts              # Optional Google Gemini image generation
   /config
     voice.ts               # Voice/style guide (tone, do's, don'ts)
     topics.ts              # Topic seeds and niche definition
   /utils
     rate-limit.ts          # Respect X API limits
     logger.ts              # Structured logging
+/scripts
+  diag-neon.mjs            # One-shot Neon connection diagnostic (local-only)
 /types
   index.ts                 # Shared TS types
 .env.local                 # Secrets (never commit)
@@ -79,16 +91,36 @@ vercel.json                # Cron schedule
 
 ## Environment Variables
 ```
+# AI
 ANTHROPIC_API_KEY=
+GEMINI_API_KEY=                  # Optional, only if image generation is enabled
+
+# Twitter / X
 TWITTER_API_KEY=
 TWITTER_API_SECRET=
 TWITTER_ACCESS_TOKEN=
 TWITTER_ACCESS_SECRET=
-SUPABASE_URL=
-SUPABASE_SERVICE_KEY=
-APPROVAL_MODE=auto|manual    # auto = post directly, manual = queue for approval
-PAUSE_POSTING=               # Set to "true" as kill switch
+
+# Database (Neon, pooled)
+DATABASE_URL=                    # postgresql://...-pooler.../neondb?sslmode=require
+
+# Slack (approvals + notifications)
+SLACK_WEBHOOK_URL=
+SLACK_SIGNING_SECRET=            # Required to verify slack-action webhook signatures
+SLACK_BOT_TOKEN=
+SLACK_CHANNEL=
+
+# Behavior
+APPROVAL_MODE=auto|manual        # auto = post directly, manual = queue for approval
+PAUSE_POSTING=                   # Set to "true" as kill switch
+DRY_RUN=                         # "true" = log the tweet, do not actually call X
+LOG_LEVEL=                       # debug|info|warn|error (default: info)
 ```
+
+> **Important:** because `DATABASE_URL` points at the Neon **pooled** endpoint
+> (PgBouncer in transaction mode), the `postgres` client in `lib/clients/neon.ts`
+> **must** be constructed with `{ prepare: false }`. Re-enabling prepared
+> statements will reintroduce the production hang fixed in commit `e65899b`.
 
 ## Voice & Style Rules
 Defined in `/lib/config/voice.ts`. Hard rules — Claude must follow on every draft:
@@ -110,7 +142,7 @@ Every draft must pass review with score ≥ 7/10 on:
 
 If no variant scores ≥ 7, the run is logged and skipped.
 
-## Database Schema (Supabase)
+## Database Schema (Neon Postgres)
 
 ```sql
 create table posts (
@@ -142,14 +174,15 @@ create table topics (
 Start in `manual` for the first 2 weeks. Switch to `auto` only after consistent quality.
 
 ## Cron Schedule
-Configured in `vercel.json`. Default: 2x/day at 9am and 3pm Phoenix time (16:00 and 22:00 UTC).
+Configured in `vercel.json`. Currently 1x/day at 00:00 UTC.
 ```json
 {
   "crons": [
-    { "path": "/api/cron/post-tweet", "schedule": "0 16,22 * * *" }
+    { "path": "/api/cron/post-tweet", "schedule": "0 0 * * *" }
   ]
 }
 ```
+Update both `vercel.json` and this section together if the cadence changes.
 
 ## Rate Limits & Safety
 - X API free tier: 17 posts/day. Stay well under (max 4/day).
@@ -160,7 +193,7 @@ Configured in `vercel.json`. Default: 2x/day at 9am and 3pm Phoenix time (16:00 
 ## Coding Conventions
 - TypeScript strict mode on.
 - All API routes return `{ ok: boolean, data?, error? }` shape.
-- Log every Claude call with token usage to Supabase `api_logs` table.
+- Log every Claude call with token usage to the Neon `api_logs` table.
 - No secrets in client code — all Claude/Twitter calls happen server-side only.
 - Use `zod` to validate Claude's structured outputs before trusting them.
 
