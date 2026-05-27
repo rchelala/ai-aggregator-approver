@@ -2,11 +2,16 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
+      "path": "/api/cron/warm-research",
+      "schedule": "50 23 * * *"
+    },
+    {
       "path": "/api/cron/post-tweet",
       "schedule": "0 0 * * *"
     }
   ],
   "functions": {
+    "api/cron/warm-research.ts": { "maxDuration": 60 },
     "api/cron/post-tweet.ts": { "maxDuration": 60 },
     "api/manual/draft-now.ts": { "maxDuration": 60 },
     "api/manual/slack-action.ts": { "maxDuration": 60 },

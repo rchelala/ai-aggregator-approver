@@ -1,11 +1,7 @@
 import { ResearchOutputSchema } from '../../types/index.js';
 import type { ResearchOutput } from '../../types/index.js';
 import { geminiCall } from '../clients/gemini.js';
-import { NICHE, TOPIC_SOURCES_HINT, EXCLUDED_TOPICS } from '../config/topics.js';
-
-// =====================================================================
-// Typed errors
-// =====================================================================
+import { NICHE, EXCLUDED_TOPICS } from '../config/topics.js';
 
 export class EmptyResearchError extends Error {
   constructor(message = 'Research agent returned 0 usable items') {
@@ -14,99 +10,102 @@ export class EmptyResearchError extends Error {
   }
 }
 
-// =====================================================================
-// Helpers
-// =====================================================================
+// ---------------------------------------------------------------------------
+// HN Algolia fetch
+// ---------------------------------------------------------------------------
 
-function isUrlObviouslyBroken(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    // Must be http or https
-    if (!['http:', 'https:'].includes(parsed.protocol)) return true;
-    // Must have a real hostname (not localhost, not bare IP)
-    if (!parsed.hostname || parsed.hostname === 'localhost') return true;
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(parsed.hostname)) return true;
-    return false;
-  } catch {
-    return true;
-  }
+interface HnHit {
+  objectID: string;
+  title: string;
+  url: string | null;
+  points: number;
+  num_comments: number;
+  created_at: string;
 }
 
-function headlineMatchesExcluded(headline: string): boolean {
-  const lower = headline.toLowerCase();
-  return EXCLUDED_TOPICS.some((topic) => {
-    // Simple keyword match — topic phrases are short and specific
-    return lower.includes(topic.toLowerCase());
-  });
+async function fetchHnStories(windowHours = 24): Promise<HnHit[]> {
+  const since = Math.floor(Date.now() / 1000) - windowHours * 3600;
+  const query = encodeURIComponent('AI LLM machine learning model agent inference');
+  const url =
+    `https://hn.algolia.com/api/v1/search_by_date?tags=story&query=${query}` +
+    `&hitsPerPage=30&numericFilters=created_at_i>${since}`;
+
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`HN Algolia error: ${res.status}`);
+  const data = (await res.json()) as { hits: HnHit[] };
+
+  return data.hits.filter((h) => h.url != null && h.points >= 2);
 }
 
-// =====================================================================
-// System prompt
-// =====================================================================
+// ---------------------------------------------------------------------------
+// Prompts
+// ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are a research agent for an AI news aggregator account on X (formerly Twitter). Your job is to find the 3–5 most relevant, fresh items in the following niche from the last 24 hours.
+const SYSTEM_PROMPT = `You are a research agent for an AI news aggregator account on X (formerly Twitter). You will be given a list of recent Hacker News stories. Your job is to select the 3–5 most relevant items for this niche:
 
 NICHE:
 ${NICHE}
 
-PREFERRED SOURCES:
-${TOPIC_SOURCES_HINT}
-
 EXCLUDED TOPICS (skip anything matching these):
 ${EXCLUDED_TOPICS.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 
-QUALITY BAR:
+SELECTION CRITERIA:
 - Each item must be a concrete event, announcement, or finding — not a trend overview.
 - Each item must name a specific entity: a company, model name, dollar amount, paper title, or person.
-- Skip secondary aggregators that just rehash press releases. Prefer primary sources.
-- If a source URL looks fabricated or you cannot verify it, omit that item.
-- published_at should be an ISO 8601 date string (e.g. "2026-04-28") if you can determine it; omit otherwise.
+- Prefer higher-points stories but don't ignore low-points stories with strong relevance.
+- Skip stories that are off-niche even if popular.
 
 OUTPUT FORMAT:
 Respond with a JSON object matching this exact shape:
 {
   "items": [
     {
-      "headline": "string — one sentence, max 200 chars",
-      "source_url": "string — real, direct URL to the source",
+      "headline": "string — one sentence, max 200 chars, your own wording (not just the HN title)",
+      "source_url": "string — use the story URL exactly as given",
       "why_matters_hint": "string — one sentence on why a software builder should care, max 300 chars",
-      "published_at": "string (optional) — ISO 8601 date"
+      "published_at": "string (optional) — ISO 8601 date from created_at"
     }
   ]
 }
 
-Return between 1 and 10 items. Prefer 3–5.`;
+Return between 1 and 5 items. Prefer 3–5.`;
 
-const USER_PROMPT =
-  'Find 3–5 specific AI/dev-tools news items from the last 24 hours. Each must include a real source URL, a one-sentence headline, and a one-sentence why-it-matters hint. Skip secondary aggregators that just rehash press releases.';
-
-// =====================================================================
+// ---------------------------------------------------------------------------
 // Main export
-// =====================================================================
+// ---------------------------------------------------------------------------
 
 export async function runResearch(postId?: string): Promise<ResearchOutput> {
-  const result = await geminiCall<ResearchOutput>({
-    system: SYSTEM_PROMPT,
-    user: USER_PROMPT,
-    jsonSchema: ResearchOutputSchema,
-    enableGoogleSearch: true,
-    agentType: 'research',
-    postId,
-    temperature: 0.3, // lower temp for factual retrieval
-  });
-
-  // Filter out broken URLs and excluded topics
-  const filtered = result.data.items.filter((item) => {
-    if (isUrlObviouslyBroken(item.source_url)) return false;
-    if (headlineMatchesExcluded(item.headline)) return false;
-    return true;
-  });
-
-  if (filtered.length === 0) {
-    throw new EmptyResearchError(
-      'Research agent returned 0 usable items after filtering broken URLs and excluded topics.',
-    );
+  let hits = await fetchHnStories(24);
+  if (hits.length < 3) {
+    hits = await fetchHnStories(48);
+  }
+  if (hits.length === 0) {
+    throw new EmptyResearchError('HN returned 0 eligible stories in the last 48 hours.');
   }
 
-  return { items: filtered };
+  const storiesContext = hits
+    .map(
+      (h) =>
+        `Title: ${h.title}\nURL: ${h.url}\nPoints: ${h.points} | Comments: ${h.num_comments}\nDate: ${h.created_at}`,
+    )
+    .join('\n\n---\n\n');
+
+  const userPrompt = `Here are recent Hacker News stories. Select the 3–5 most relevant to the niche and return them in the required JSON format:\n\n${storiesContext}`;
+
+  const result = await geminiCall<ResearchOutput>({
+    model: 'gemini-2.0-flash',
+    system: SYSTEM_PROMPT,
+    user: userPrompt,
+    jsonSchema: ResearchOutputSchema,
+    enableGoogleSearch: false,
+    agentType: 'research',
+    postId,
+    temperature: 0.2,
+  });
+
+  if (result.data.items.length === 0) {
+    throw new EmptyResearchError('Gemini selected 0 items from HN stories.');
+  }
+
+  return result.data;
 }

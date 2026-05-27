@@ -1,8 +1,3 @@
-/**
- * Daily X post quota tracking. The X free tier allows 17 posts/day,
- * but project policy is 1/day to keep signal density high.
- */
-
 export const X_FREE_TIER_DAILY_LIMIT = 17;
 export const PROJECT_DAILY_LIMIT = 1;
 

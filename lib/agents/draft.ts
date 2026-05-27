@@ -97,13 +97,14 @@ export async function runDraft(
   const userPrompt = `Here are today's research items:\n${JSON.stringify(research.items, null, 2)}\n\n${recentSection}\n\nProduce 2 variants in the JSON shape specified in your instructions.`;
 
   const result = await geminiCall<DraftOutput>({
+    model: 'gemini-2.0-flash',
     system: systemPrompt,
     user: userPrompt,
     jsonSchema: DraftOutputSchema,
     enableGoogleSearch: false,
     agentType: 'draft',
     postId,
-    temperature: 0.85, // higher creativity for drafting
+    temperature: 0.85,
   });
 
   // Verify and repair rendered_text for each variant

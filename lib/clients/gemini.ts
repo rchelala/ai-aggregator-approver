@@ -188,7 +188,12 @@ export async function geminiCall<T = string>(
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const result = await modelInstance.generateContent(opts.user);
+      const result = await Promise.race([
+        modelInstance.generateContent(opts.user),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Gemini API call timed out after 25s')), 25000),
+        ),
+      ]);
       const duration_ms = Math.round(performance.now() - t0);
 
       const response = result.response;

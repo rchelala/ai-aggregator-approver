@@ -9,6 +9,7 @@ import {
   expireOldQueued,
   alreadyRanToday,
   getRecent7DaysPostedTexts,
+  getLatestResearchCache,
 } from '../../lib/clients/neon.js';
 import { tweet, TwitterAuthError } from '../../lib/clients/twitter.js';
 import { postDraftToSlack } from '../../lib/clients/slack.js';
@@ -43,8 +44,9 @@ export default async function handler(_req: Request): Promise<Response> {
   }
 
   try {
-    const research = await runResearch();
-    log('info', 'research complete', { item_count: research.items.length });
+    const cached = await getLatestResearchCache(30);
+    const research = cached ?? await runResearch();
+    log('info', 'research ready', { item_count: research.items.length, source: cached ? 'cache' : 'live' });
 
     const recentTexts = await getRecent7DaysPostedTexts();
     const draft = await runDraft(research, recentTexts);

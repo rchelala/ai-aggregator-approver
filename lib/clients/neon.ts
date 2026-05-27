@@ -1,21 +1,24 @@
 import postgres from 'postgres';
-import type { PostRow, PostStatus, DraftVariant, ApiLogInsert } from '../../types/index.js';
-import { PostRowSchema } from '../../types/index.js';
+import type { PostRow, PostStatus, DraftVariant, ApiLogInsert, ResearchOutput } from '../../types/index.js';
+import { PostRowSchema, ResearchOutputSchema } from '../../types/index.js';
 
 // ---------------------------------------------------------------------------
-// Lazy singleton
+// Lazy singleton — TCP via PgBouncer (prepare: false required)
 // ---------------------------------------------------------------------------
 
 let _db: postgres.Sql | undefined;
 
 export function getDb(): postgres.Sql {
   if (!_db) {
-    const url = process.env['DATABASE_URL'];
-    if (!url) throw new Error('Missing env var: DATABASE_URL');
+    const rawUrl = process.env['DATABASE_URL'];
+    if (!rawUrl) throw new Error('Missing env var: DATABASE_URL');
+    // Strip channel_binding param — the postgres driver does not support it and
+    // leaving it in can cause the SASL auth phase to hang indefinitely.
+    const url = rawUrl.replace(/[?&]channel_binding=[^&]*/i, '').replace(/\?&/, '?').replace(/[?&]$/, '');
     _db = postgres(url, {
       ssl: 'require',
       prepare: false,
-      connect_timeout: 10,
+      connect_timeout: 5,
       idle_timeout: 20,
       max_lifetime: 60 * 5,
       max: 1,
@@ -28,7 +31,6 @@ export function getDb(): postgres.Sql {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// postgres returns Date objects for timestamptz — normalise to ISO string
 function toIso(val: unknown): string | null {
   if (val == null) return null;
   if (val instanceof Date) return val.toISOString();
@@ -61,13 +63,8 @@ export async function createPost(args: {
 
   const rows = await sql<Record<string, unknown>[]>`
     INSERT INTO posts (
-      topic,
-      research_summary,
-      draft_variants,
-      selected_variant,
-      bullet_breakdown,
-      status,
-      reason
+      topic, research_summary, draft_variants, selected_variant,
+      bullet_breakdown, status, reason
     ) VALUES (
       ${args.topic},
       ${args.research_summary},
@@ -91,11 +88,7 @@ export async function createPost(args: {
 
 export async function getPostById(id: string): Promise<PostRow | null> {
   const sql = getDb();
-
-  const rows = await sql<Record<string, unknown>[]>`
-    SELECT * FROM posts WHERE id = ${id} LIMIT 1
-  `;
-
+  const rows = await sql<Record<string, unknown>[]>`SELECT * FROM posts WHERE id = ${id} LIMIT 1`;
   if (rows.length === 0) return null;
   return normaliseRow(rows[0]!);
 }
@@ -116,37 +109,17 @@ export async function updatePostStatus(
   },
 ): Promise<void> {
   const sql = getDb();
-
-  // Build dynamic SET clause via postgres fragment list
   const updates: postgres.PendingQuery<postgres.Row[]>[] = [];
 
-  if (fields.status !== undefined) {
-    updates.push(sql`status = ${fields.status}`);
-  }
-  if (fields.posted !== undefined) {
-    updates.push(sql`posted = ${fields.posted}`);
-  }
-  if ('posted_at' in fields) {
-    updates.push(sql`posted_at = ${fields.posted_at ?? null}`);
-  }
-  if ('tweet_id' in fields) {
-    updates.push(sql`tweet_id = ${fields.tweet_id ?? null}`);
-  }
-  if ('reason' in fields) {
-    updates.push(sql`reason = ${fields.reason ?? null}`);
-  }
-  if ('slack_message_ts' in fields) {
-    updates.push(sql`slack_message_ts = ${fields.slack_message_ts ?? null}`);
-  }
+  if (fields.status !== undefined) updates.push(sql`status = ${fields.status}`);
+  if (fields.posted !== undefined) updates.push(sql`posted = ${fields.posted}`);
+  if ('posted_at' in fields) updates.push(sql`posted_at = ${fields.posted_at ?? null}`);
+  if ('tweet_id' in fields) updates.push(sql`tweet_id = ${fields.tweet_id ?? null}`);
+  if ('reason' in fields) updates.push(sql`reason = ${fields.reason ?? null}`);
+  if ('slack_message_ts' in fields) updates.push(sql`slack_message_ts = ${fields.slack_message_ts ?? null}`);
 
   if (updates.length === 0) return;
-
-  // postgres-js supports joining fragments with sql`...`
-  await sql`
-    UPDATE posts
-    SET ${updates.reduce((acc, frag) => sql`${acc}, ${frag}`)}
-    WHERE id = ${id}
-  `;
+  await sql`UPDATE posts SET ${updates.reduce((acc, f) => sql`${acc}, ${f}`)} WHERE id = ${id}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,15 +128,11 @@ export async function updatePostStatus(
 
 export async function expireOldQueued(): Promise<number> {
   const sql = getDb();
-
   const rows = await sql<{ id: string }[]>`
-    UPDATE posts
-    SET status = 'rejected', reason = 'expired'
-    WHERE status = 'queued'
-      AND created_at < (now() - interval '24 hours')
+    UPDATE posts SET status = 'rejected', reason = 'expired'
+    WHERE status = 'queued' AND created_at < (now() - interval '24 hours')
     RETURNING id
   `;
-
   return rows.length;
 }
 
@@ -173,13 +142,9 @@ export async function expireOldQueued(): Promise<number> {
 
 export async function listQueuedPosts(): Promise<PostRow[]> {
   const sql = getDb();
-
   const rows = await sql<Record<string, unknown>[]>`
-    SELECT * FROM posts
-    WHERE status = 'queued'
-    ORDER BY created_at ASC
+    SELECT * FROM posts WHERE status = 'queued' ORDER BY created_at ASC
   `;
-
   return rows.map(normaliseRow);
 }
 
@@ -189,17 +154,11 @@ export async function listQueuedPosts(): Promise<PostRow[]> {
 
 export async function getRecent7DaysPostedTexts(): Promise<string[]> {
   const sql = getDb();
-
   const rows = await sql<{ selected_variant: string | null }[]>`
-    SELECT selected_variant
-    FROM posts
-    WHERE posted = true
-      AND posted_at > now() - interval '7 days'
+    SELECT selected_variant FROM posts
+    WHERE posted = true AND posted_at > now() - interval '7 days'
   `;
-
-  return rows
-    .map((r) => r.selected_variant)
-    .filter((v): v is string => v != null);
+  return rows.map((r) => r.selected_variant).filter((v): v is string => v != null);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,15 +167,12 @@ export async function getRecent7DaysPostedTexts(): Promise<string[]> {
 
 export async function alreadyRanToday(): Promise<boolean> {
   const sql = getDb();
-
   const rows = await sql<{ exists: number }[]>`
-    SELECT 1 AS exists
-    FROM posts
+    SELECT 1 AS exists FROM posts
     WHERE date_trunc('day', created_at AT TIME ZONE 'UTC') = date_trunc('day', now() AT TIME ZONE 'UTC')
       AND status IN ('queued', 'posted')
     LIMIT 1
   `;
-
   return rows.length > 0;
 }
 
@@ -226,30 +182,14 @@ export async function alreadyRanToday(): Promise<boolean> {
 
 export async function insertApiLog(row: ApiLogInsert): Promise<void> {
   const sql = getDb();
-
   await sql`
     INSERT INTO api_logs (
-      provider,
-      model,
-      agent_type,
-      input_tokens,
-      cached_input_tokens,
-      output_tokens,
-      cost_usd,
-      duration_ms,
-      post_id,
-      error
+      provider, model, agent_type, input_tokens, cached_input_tokens,
+      output_tokens, cost_usd, duration_ms, post_id, error
     ) VALUES (
-      ${row.provider},
-      ${row.model},
-      ${row.agent_type},
-      ${row.input_tokens},
-      ${row.cached_input_tokens},
-      ${row.output_tokens},
-      ${row.cost_usd},
-      ${row.duration_ms},
-      ${row.post_id},
-      ${row.error}
+      ${row.provider}, ${row.model}, ${row.agent_type}, ${row.input_tokens},
+      ${row.cached_input_tokens}, ${row.output_tokens}, ${row.cost_usd},
+      ${row.duration_ms}, ${row.post_id}, ${row.error}
     )
   `;
 }
@@ -258,29 +198,21 @@ export async function insertApiLog(row: ApiLogInsert): Promise<void> {
 // get7DayCost
 // ---------------------------------------------------------------------------
 
-export async function get7DayCost(): Promise<{
-  total_usd: number;
-  by_provider: Record<string, number>;
-}> {
+export async function get7DayCost(): Promise<{ total_usd: number; by_provider: Record<string, number> }> {
   const sql = getDb();
-
   const rows = await sql<{ provider: string; total: string }[]>`
     SELECT provider, SUM(cost_usd)::text AS total
     FROM api_logs
-    WHERE timestamp > now() - interval '7 days'
-      AND cost_usd IS NOT NULL
+    WHERE timestamp > now() - interval '7 days' AND cost_usd IS NOT NULL
     GROUP BY provider
   `;
-
   const by_provider: Record<string, number> = {};
   let total_usd = 0;
-
-  for (const row of rows) {
-    const amount = parseFloat(row.total ?? '0');
-    by_provider[row.provider] = amount;
+  for (const r of rows) {
+    const amount = parseFloat(r.total ?? '0');
+    by_provider[r.provider] = amount;
     total_usd += amount;
   }
-
   return { total_usd, by_provider };
 }
 
@@ -296,55 +228,49 @@ export async function getHealthInfo(): Promise<{
 }> {
   const sql = getDb();
 
-  // Last posted
   const [lastPostedRow] = await sql<{ posted_at: Date | null }[]>`
-    SELECT posted_at
-    FROM posts
-    WHERE posted = true
-    ORDER BY posted_at DESC
-    LIMIT 1
+    SELECT posted_at FROM posts WHERE posted = true ORDER BY posted_at DESC LIMIT 1
   `;
-
-  const last_posted_at = toIso(lastPostedRow?.posted_at ?? null);
-
-  // Last skip (most recent rejected row with a reason)
   const [lastSkipRow] = await sql<{ created_at: Date; reason: string | null }[]>`
-    SELECT created_at, reason
-    FROM posts
-    WHERE status = 'rejected'
-      AND reason IS NOT NULL
-    ORDER BY created_at DESC
-    LIMIT 1
+    SELECT created_at, reason FROM posts
+    WHERE status = 'rejected' AND reason IS NOT NULL ORDER BY created_at DESC LIMIT 1
   `;
-
-  const last_skip =
-    lastSkipRow != null
-      ? {
-          date: toIso(lastSkipRow.created_at) ?? '',
-          reason: lastSkipRow.reason ?? '',
-        }
-      : null;
-
-  // Skip rate over 7 days
   const [statsRow] = await sql<{ total: string; rejected: string }[]>`
-    SELECT
-      COUNT(*)::text AS total,
-      COUNT(*) FILTER (WHERE status = 'rejected')::text AS rejected
-    FROM posts
-    WHERE created_at > now() - interval '7 days'
+    SELECT COUNT(*)::text AS total,
+           COUNT(*) FILTER (WHERE status = 'rejected')::text AS rejected
+    FROM posts WHERE created_at > now() - interval '7 days'
   `;
 
   const total7d = parseInt(statsRow?.total ?? '0', 10);
   const rejected7d = parseInt(statsRow?.rejected ?? '0', 10);
-  const skip_rate_7d = total7d > 0 ? rejected7d / total7d : 0;
-
-  // Cost 7d
   const { total_usd } = await get7DayCost();
 
   return {
-    last_posted_at,
-    last_skip,
-    skip_rate_7d,
+    last_posted_at: toIso(lastPostedRow?.posted_at ?? null),
+    last_skip: lastSkipRow
+      ? { date: toIso(lastSkipRow.created_at) ?? '', reason: lastSkipRow.reason ?? '' }
+      : null,
+    skip_rate_7d: total7d > 0 ? rejected7d / total7d : 0,
     cost_usd_7d: total_usd,
   };
+}
+
+// ---------------------------------------------------------------------------
+// saveResearchCache / getLatestResearchCache
+// ---------------------------------------------------------------------------
+
+export async function saveResearchCache(output: ResearchOutput): Promise<void> {
+  const sql = getDb();
+  await sql`INSERT INTO research_cache (items) VALUES (${sql.json(output.items as postgres.JSONValue)})`;
+}
+
+export async function getLatestResearchCache(maxAgeMinutes: number): Promise<ResearchOutput | null> {
+  const sql = getDb();
+  const rows = await sql<{ items: unknown }[]>`
+    SELECT items FROM research_cache
+    WHERE created_at > now() - (${maxAgeMinutes} * interval '1 minute')
+    ORDER BY created_at DESC LIMIT 1
+  `;
+  if (rows.length === 0) return null;
+  return ResearchOutputSchema.parse({ items: rows[0]!.items });
 }

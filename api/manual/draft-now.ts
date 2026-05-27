@@ -2,7 +2,7 @@ import { ok, err } from '../../types/index.js';
 import { runResearch } from '../../lib/agents/research.js';
 import { runDraft } from '../../lib/agents/draft.js';
 import { runReview } from '../../lib/agents/review.js';
-import { getRecent7DaysPostedTexts } from '../../lib/clients/neon.js';
+import { getRecent7DaysPostedTexts, getLatestResearchCache } from '../../lib/clients/neon.js';
 import { validateDraft } from '../../lib/utils/validate.js';
 
 export default async function handler(req: Request): Promise<Response> {
@@ -10,7 +10,8 @@ export default async function handler(req: Request): Promise<Response> {
     return Response.json(err('method-not-allowed'), { status: 405 });
   }
   try {
-    const research = await runResearch();
+    const cached = await getLatestResearchCache(120);
+    const research = cached ?? await runResearch();
     const recentTexts = await getRecent7DaysPostedTexts();
     const draft = await runDraft(research, recentTexts);
     const surviving = draft.variants.filter((v) => validateDraft(v.rendered_text).valid);
