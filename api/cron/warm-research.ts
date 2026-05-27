@@ -4,16 +4,12 @@ import { saveResearchCache } from '../../lib/clients/neon.js';
 import { GeminiQuotaExhaustedError } from '../../lib/clients/gemini.js';
 import { log } from '../../lib/utils/logger.js';
 
-export default async function handler(_req: Request): Promise<Response> {
-  if (process.env.PAUSE_POSTING === 'true') {
-    return Response.json(ok({ status: 'paused' }));
-  }
-
+async function doWork(): Promise<Response> {
   try {
     const research = await runResearch();
     log('info', 'warm-research complete', { item_count: research.items.length });
 
-    // Best-effort DB write — if Neon is slow, skip it rather than timing out the whole function
+    // Best-effort DB write — 15s cap so a slow Neon cold-start doesn't eat our budget
     const cacheResult = await Promise.race([
       saveResearchCache(research).then(() => 'saved' as const),
       new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 15000)),
@@ -33,4 +29,18 @@ export default async function handler(_req: Request): Promise<Response> {
     log('error', 'warm-research error', { error: String(e) });
     return Response.json(err(String(e)), { status: 500 });
   }
+}
+
+export default async function handler(_req: Request): Promise<Response> {
+  if (process.env.PAUSE_POSTING === 'true') {
+    return Response.json(ok({ status: 'paused' }));
+  }
+
+  // Global 50s ceiling — must respond before Vercel's 60s hard kill
+  return Promise.race([
+    doWork(),
+    new Promise<Response>((resolve) =>
+      setTimeout(() => resolve(Response.json(ok({ status: 'global_timeout' }))), 50000),
+    ),
+  ]);
 }
