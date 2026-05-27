@@ -17,6 +17,9 @@
     "twitter-api-v2": "^1.18.0",
     "zod": "^3.23.8"
   },
+  "engines": {
+    "node": "20.x"
+  },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "typescript": "^5.5.0",
