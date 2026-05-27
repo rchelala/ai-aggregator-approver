@@ -18,7 +18,7 @@ export function getDb(): postgres.Sql {
     _db = postgres(url, {
       ssl: 'require',
       prepare: false,
-      connect_timeout: 5,
+      connect_timeout: 15,
       idle_timeout: 20,
       max_lifetime: 60 * 5,
       max: 1,
