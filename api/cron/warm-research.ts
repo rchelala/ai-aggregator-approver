@@ -1,6 +1,6 @@
 import { ok, err } from '../../types/index.js';
 import { runResearch, EmptyResearchError } from '../../lib/agents/research.js';
-import { saveResearchCache } from '../../lib/clients/neon.js';
+import { saveResearchCacheHttp } from '../../lib/clients/neon.js';
 import { GeminiQuotaExhaustedError } from '../../lib/clients/gemini.js';
 import { log } from '../../lib/utils/logger.js';
 
@@ -11,7 +11,7 @@ async function doWork(): Promise<Response> {
 
     // Best-effort DB write — 15s cap so a slow Neon cold-start doesn't eat our budget
     const cacheResult = await Promise.race([
-      saveResearchCache(research).then(() => 'saved' as const),
+      saveResearchCacheHttp(research).then(() => 'saved' as const),
       new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 15000)),
     ]);
     log('info', 'research cache write', { result: cacheResult });

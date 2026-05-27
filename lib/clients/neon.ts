@@ -264,6 +264,18 @@ export async function saveResearchCache(output: ResearchOutput): Promise<void> {
   await sql`INSERT INTO research_cache (items) VALUES (${sql.json(output.items as postgres.JSONValue)})`;
 }
 
+// HTTP-based variant — uses @neondatabase/serverless HTTP driver so no TCP socket
+// lingers after the call completes. Use this from warm-research to avoid the
+// open-socket event-loop problem that prevents Vercel from terminating the function.
+export async function saveResearchCacheHttp(output: ResearchOutput): Promise<void> {
+  const { neon } = await import('@neondatabase/serverless');
+  const rawUrl = process.env['DATABASE_URL'];
+  if (!rawUrl) throw new Error('Missing env var: DATABASE_URL');
+  const url = rawUrl.replace(/[?&]channel_binding=[^&]*/i, '').replace(/\?&/, '?').replace(/[?&]$/, '');
+  const sql = neon(url);
+  await sql`INSERT INTO research_cache (items) VALUES (${JSON.stringify(output.items)}::jsonb)`;
+}
+
 export async function getLatestResearchCache(maxAgeMinutes: number): Promise<ResearchOutput | null> {
   const sql = getDb();
   const rows = await sql<{ items: unknown }[]>`
