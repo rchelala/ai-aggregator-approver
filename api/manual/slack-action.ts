@@ -8,8 +8,11 @@ import {
 import { tweet } from '../../lib/clients/twitter.js';
 import { validateDraft } from '../../lib/utils/validate.js';
 import { log } from '../../lib/utils/logger.js';
+import { vercelHandler } from '../../lib/utils/vercel-handler.js';
 
-export default async function handler(req: Request): Promise<Response> {
+export const config = { api: { bodyParser: false } };
+
+async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') return new Response('method-not-allowed', { status: 405 });
 
   const rawBody = await req.text();
@@ -96,3 +99,5 @@ export default async function handler(req: Request): Promise<Response> {
 
   return new Response('', { status: 200 });
 }
+
+export default vercelHandler(handler);

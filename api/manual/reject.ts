@@ -2,8 +2,11 @@ import { ok, err } from '../../types/index.js';
 import { getPostById, updatePostStatus } from '../../lib/clients/neon.js';
 import { updateSlackMessage } from '../../lib/clients/slack.js';
 import { log } from '../../lib/utils/logger.js';
+import { vercelHandler } from '../../lib/utils/vercel-handler.js';
 
-export default async function handler(req: Request): Promise<Response> {
+export const config = { api: { bodyParser: false } };
+
+async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') return Response.json(err('method-not-allowed'), { status: 405 });
 
   const body = (await req.json().catch(() => null)) as { id?: unknown; reason?: unknown } | null;
@@ -28,3 +31,5 @@ export default async function handler(req: Request): Promise<Response> {
   }
   return Response.json(ok({ status: 'rejected' }));
 }
+
+export default vercelHandler(handler);

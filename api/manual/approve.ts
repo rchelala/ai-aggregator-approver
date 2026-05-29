@@ -8,8 +8,11 @@ import {
 import { updateSlackMessage } from '../../lib/clients/slack.js';
 import { validateDraft } from '../../lib/utils/validate.js';
 import { log } from '../../lib/utils/logger.js';
+import { vercelHandler } from '../../lib/utils/vercel-handler.js';
 
-export default async function handler(req: Request): Promise<Response> {
+export const config = { api: { bodyParser: false } };
+
+async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') return Response.json(err('method-not-allowed'), { status: 405 });
 
   let id: string;
@@ -80,3 +83,5 @@ export default async function handler(req: Request): Promise<Response> {
     return Response.json(err(String(e)), { status: 500 });
   }
 }
+
+export default vercelHandler(handler);

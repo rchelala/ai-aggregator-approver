@@ -18,8 +18,11 @@ import { validateDraft } from '../../lib/utils/validate.js';
 import { isDuplicate } from '../../lib/utils/dedup.js';
 import { log } from '../../lib/utils/logger.js';
 import { checkDailyPostQuota } from '../../lib/utils/rate-limit.js';
+import { vercelHandler } from '../../lib/utils/vercel-handler.js';
 
-export default async function handler(_req: Request): Promise<Response> {
+export const config = { api: { bodyParser: false } };
+
+async function handler(_req: Request): Promise<Response> {
   if (process.env.PAUSE_POSTING === 'true') {
     log('info', 'pipeline paused via PAUSE_POSTING env var');
     return Response.json(ok({ status: 'paused' }));
@@ -169,3 +172,5 @@ export default async function handler(_req: Request): Promise<Response> {
     return Response.json(err(String(e)), { status: 500 });
   }
 }
+
+export default vercelHandler(handler);

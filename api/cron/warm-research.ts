@@ -3,6 +3,9 @@ import { runResearch, EmptyResearchError } from '../../lib/agents/research.js';
 import { saveResearchCacheHttp } from '../../lib/clients/neon.js';
 import { GeminiQuotaExhaustedError } from '../../lib/clients/gemini.js';
 import { log } from '../../lib/utils/logger.js';
+import { vercelHandler } from '../../lib/utils/vercel-handler.js';
+
+export const config = { api: { bodyParser: false } };
 
 async function doWork(): Promise<Response> {
   try {
@@ -31,7 +34,7 @@ async function doWork(): Promise<Response> {
   }
 }
 
-export default async function handler(_req: Request): Promise<Response> {
+async function handler(_req: Request): Promise<Response> {
   if (process.env.PAUSE_POSTING === 'true') {
     return Response.json(ok({ status: 'paused' }));
   }
@@ -44,3 +47,5 @@ export default async function handler(_req: Request): Promise<Response> {
     ),
   ]);
 }
+
+export default vercelHandler(handler);

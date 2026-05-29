@@ -1,6 +1,9 @@
-import { ok, err } from '../../types/index.js';
+import { ok } from '../../types/index.js';
+import { vercelHandler } from '../../lib/utils/vercel-handler.js';
 
-export default async function handler(_req: Request): Promise<Response> {
+export const config = { api: { bodyParser: false } };
+
+async function handler(_req: Request): Promise<Response> {
   const steps: { step: string; ms: number }[] = [];
   const t0 = Date.now();
 
@@ -43,3 +46,5 @@ export default async function handler(_req: Request): Promise<Response> {
 
   return Response.json(ok({ total_ms: Date.now() - t0, steps }));
 }
+
+export default vercelHandler(handler);
