@@ -97,7 +97,7 @@ export async function runDraft(
   const userPrompt = `Here are today's research items:\n${JSON.stringify(research.items, null, 2)}\n\n${recentSection}\n\nProduce 2 variants in the JSON shape specified in your instructions.`;
 
   const result = await geminiCall<DraftOutput>({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     system: systemPrompt,
     user: userPrompt,
     jsonSchema: DraftOutputSchema,

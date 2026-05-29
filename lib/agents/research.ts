@@ -102,7 +102,7 @@ export async function runResearch(postId?: string): Promise<ResearchOutput> {
   const userPrompt = `Here are recent Hacker News stories. Select the 3–5 most relevant to the niche and return them in the required JSON format:\n\n${storiesContext}`;
 
   const result = await geminiCall<ResearchOutput>({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     system: SYSTEM_PROMPT,
     user: userPrompt,
     jsonSchema: ResearchOutputSchema,
