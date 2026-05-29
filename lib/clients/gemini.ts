@@ -188,7 +188,7 @@ export async function geminiCall<T = string>(
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const result = await modelInstance.generateContent(opts.user, { timeout: 25000 });
+      const result = await modelInstance.generateContent(opts.user, { timeout: 45000 });
       const duration_ms = Math.round(performance.now() - t0);
 
       const response = result.response;
