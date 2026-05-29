@@ -58,7 +58,7 @@ export type Bullet = z.infer<typeof BulletSchema>;
 export const DraftVariantSchema = z.object({
   bullets: z.array(BulletSchema).min(2).max(3),
   closing_line: z.string().max(140).optional(),
-  rendered_text: z.string().max(280),
+  rendered_text: z.string(),
 });
 export type DraftVariant = z.infer<typeof DraftVariantSchema>;
 
