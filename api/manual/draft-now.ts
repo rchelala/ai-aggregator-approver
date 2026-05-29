@@ -1,7 +1,6 @@
 import { ok, err } from '../../types/index.js';
 import { runResearch } from '../../lib/agents/research.js';
 import { runDraft } from '../../lib/agents/draft.js';
-import { runReview } from '../../lib/agents/review.js';
 import { getRecent7DaysPostedTexts, getLatestResearchCache } from '../../lib/clients/neon.js';
 import { validateDraft } from '../../lib/utils/validate.js';
 import { vercelHandler } from '../../lib/utils/vercel-handler.js';
@@ -18,13 +17,11 @@ async function handler(req: Request): Promise<Response> {
     const recentTexts = await getRecent7DaysPostedTexts();
     const draft = await runDraft(research, recentTexts);
     const surviving = draft.variants.filter((v) => validateDraft(v.rendered_text).valid);
-    const decision = surviving.length > 0 ? await runReview({ variants: surviving }) : null;
     return Response.json(
       ok({
         research_count: research.items.length,
         variants: draft.variants,
         surviving_count: surviving.length,
-        decision,
       }),
     );
   } catch (e) {
