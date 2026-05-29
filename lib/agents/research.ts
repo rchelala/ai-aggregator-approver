@@ -25,16 +25,25 @@ interface HnHit {
 
 async function fetchHnStories(windowHours = 24): Promise<HnHit[]> {
   const since = Math.floor(Date.now() / 1000) - windowHours * 3600;
-  const query = encodeURIComponent('AI LLM machine learning model agent inference');
-  const url =
-    `https://hn.algolia.com/api/v1/search_by_date?tags=story&query=${query}` +
-    `&hitsPerPage=30&numericFilters=created_at_i>${since}`;
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`HN Algolia error: ${res.status}`);
-  const data = (await res.json()) as { hits: HnHit[] };
+  // Fetch "AI" and "LLM" separately (Algolia AND-matches multi-word queries,
+  // so compound queries return 0 hits), then merge and deduplicate.
+  const fetchOne = async (q: string): Promise<HnHit[]> => {
+    const r = await fetch(
+      `https://hn.algolia.com/api/v1/search_by_date?tags=story&query=${q}&hitsPerPage=30&numericFilters=created_at_i>${since}`,
+      { signal: AbortSignal.timeout(10000) },
+    );
+    if (!r.ok) return [];
+    return ((await r.json()) as { hits: HnHit[] }).hits;
+  };
 
-  return data.hits.filter((h) => h.url != null);
+  const [aiHits, llmHits] = await Promise.all([fetchOne('AI'), fetchOne('LLM')]);
+  const seen = new Set<string>();
+  return [...aiHits, ...llmHits].filter((h) => {
+    if (!h.url || seen.has(h.objectID)) return false;
+    seen.add(h.objectID);
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------------------
