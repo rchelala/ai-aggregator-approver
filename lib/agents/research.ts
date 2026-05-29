@@ -34,7 +34,7 @@ async function fetchHnStories(windowHours = 24): Promise<HnHit[]> {
   if (!res.ok) throw new Error(`HN Algolia error: ${res.status}`);
   const data = (await res.json()) as { hits: HnHit[] };
 
-  return data.hits.filter((h) => h.url != null && h.points >= 2);
+  return data.hits.filter((h) => h.url != null);
 }
 
 // ---------------------------------------------------------------------------
