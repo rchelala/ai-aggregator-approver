@@ -22,7 +22,7 @@ export function vercelHandler(
     const webReq = new Request(url.toString(), {
       method: req.method ?? 'GET',
       headers,
-      body: rawBody.length > 0 ? rawBody : undefined,
+      body: rawBody.length > 0 ? rawBody.buffer.slice(rawBody.byteOffset, rawBody.byteOffset + rawBody.byteLength) : undefined,
     });
 
     try {
