@@ -15,7 +15,7 @@ export const FORMAT_RULES: string[] = [
   `Then 2 or 3 bullets, never 1, never 4. Each bullet starts with "${BULLET_PREFIX}".`,
   `Inside each bullet, separate the headline from the take with "${BULLET_SEPARATOR}" (a colon and a space). Never use an em-dash or hyphen-space-hyphen as a separator.`,
   'Optional closing line at the end, after a blank line. Include only if the bullets share a genuine connecting thread. Otherwise omit.',
-  `Total tweet text must be at most ${MAX_TWEET_CHARS} characters including newlines.`,
+  `Total tweet text must be at most ${MAX_TWEET_CHARS} characters including newlines. CHARACTER BUDGET: the lead-in uses 14 chars; with 3 bullets you have ~252 chars left (~84 per bullet, headline+take combined); with 2 bullets you have ~257 chars (~128 per bullet). Keep headlines under 40 chars and takes under 50 chars.`,
   'Each bullet must independently pass: (1) names a specific entity (company, model, paper, dollar amount), (2) the take after the colon says something, (3) the take is something a smart reader couldn\'t have generated from the headline alone.',
 ];
 
