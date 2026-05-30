@@ -2,7 +2,6 @@ import { ok, err } from '../../types/index.js';
 import type { DraftVariant } from '../../types/index.js';
 import { runResearch, EmptyResearchError } from '../../lib/agents/research.js';
 import { runDraft, DraftFailedError } from '../../lib/agents/draft.js';
-import { runReview } from '../../lib/agents/review.js';
 import {
   createPost,
   updatePostStatus,
@@ -75,44 +74,19 @@ async function handler(_req: Request): Promise<Response> {
       return Response.json(ok({ status: 'all_variants_filtered' }));
     }
 
-    const decision = await runReview({ variants: survivingVariants });
-    log('info', 'review complete', { outcome: decision.outcome });
+    // Pick first surviving variant — human reviews via Slack in manual mode.
+    // Automated review removed to stay under Vercel's 60s function limit.
+    const winner = survivingVariants[0]!;
 
     const firstHeadline = research.items[0]?.headline ?? 'unknown';
     const researchSummary = JSON.stringify(research.items.map((i) => i.headline));
-
-    if (decision.outcome === 'rejected') {
-      const post = await createPost({
-        topic: firstHeadline,
-        research_summary: researchSummary,
-        draft_variants: survivingVariants,
-        selected_variant: null,
-        bullet_breakdown: { reviews: decision.reviews },
-        status: 'rejected',
-        reason: decision.reason,
-      });
-      log('info', 'all variants below quality bar', {
-        post_id: post.id,
-        reason: decision.reason,
-      });
-      return Response.json(ok({ status: 'quality_below_bar', post_id: post.id }));
-    }
-
-    const winner = survivingVariants[decision.winner_index];
-    if (!winner) {
-      throw new Error(`review picked invalid winner_index ${decision.winner_index}`);
-    }
 
     const post = await createPost({
       topic: firstHeadline,
       research_summary: researchSummary,
       draft_variants: survivingVariants,
       selected_variant: winner.rendered_text,
-      bullet_breakdown: {
-        winner_index: decision.winner_index,
-        reviews: decision.reviews,
-        bullets: winner.bullets,
-      },
+      bullet_breakdown: { bullets: winner.bullets },
       status: 'queued',
     });
     log('info', 'draft queued', { post_id: post.id });
@@ -135,14 +109,11 @@ async function handler(_req: Request): Promise<Response> {
       );
     }
 
-    const winnerReview = decision.reviews.find(
-      (r) => r.variant_index === decision.winner_index,
-    );
     const slackResult = await postDraftToSlack(post, {
-      overall: winnerReview?.overall_score ?? 0,
+      overall: 0,
       chars: winner.rendered_text.length,
       bulletCount: winner.bullets.length,
-      bulletScores: winnerReview?.bullet_scores.map((b) => b.score) ?? [],
+      bulletScores: [],
     });
     await updatePostStatus(post.id, { slack_message_ts: slackResult.message_ts });
     return Response.json(ok({ status: 'queued_for_approval', post_id: post.id }));
