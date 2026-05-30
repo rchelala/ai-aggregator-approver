@@ -96,48 +96,39 @@ export async function runDraft(
 
   const userPrompt = `Here are today's research items:\n${JSON.stringify(research.items, null, 2)}\n\n${recentSection}\n\nProduce 2 variants in the JSON shape specified in your instructions.`;
 
-  const result = await geminiCall<DraftOutput>({
+  const callOpts = {
     model: 'gemini-2.5-flash',
     system: systemPrompt,
     user: userPrompt,
     jsonSchema: DraftOutputSchema,
     enableGoogleSearch: false,
-    agentType: 'draft',
+    agentType: 'draft' as const,
     postId,
     temperature: 0.85,
-  });
+  };
 
-  // Verify and repair rendered_text for each variant
-  const survivingVariants = result.data.variants.flatMap((variant) => {
-    try {
-      const recomputed = renderDigest(variant.bullets, variant.closing_line);
-
-      // If rendered_text is mismatched or missing, overwrite with recomputed value
-      const corrected = {
-        ...variant,
-        rendered_text: recomputed,
-      };
-
-      // Final check: DraftVariantSchema enforces max 280 chars on rendered_text
-      if (corrected.rendered_text.length > 280) {
-        // renderDigest should have already thrown, but guard anyway
-        return [];
+  function filterVariants(data: DraftOutput) {
+    return data.variants.flatMap((variant) => {
+      try {
+        const recomputed = renderDigest(variant.bullets, variant.closing_line);
+        return [{ ...variant, rendered_text: recomputed }];
+      } catch (err) {
+        if (err instanceof DigestFormatError) return [];
+        throw err;
       }
+    });
+  }
 
-      return [corrected];
-    } catch (err) {
-      if (err instanceof DigestFormatError) {
-        // This variant is structurally broken — drop it
-        return [];
-      }
-      // Unexpected error — re-throw
-      throw err;
-    }
-  });
+  let survivingVariants = filterVariants((await geminiCall<DraftOutput>(callOpts)).data);
+
+  // One retry if all variants fail format validation (Gemini occasionally goes long)
+  if (survivingVariants.length === 0) {
+    survivingVariants = filterVariants((await geminiCall<DraftOutput>(callOpts)).data);
+  }
 
   if (survivingVariants.length === 0) {
     throw new DraftFailedError(
-      'All draft variants failed format validation (renderDigest threw for each one).',
+      'All draft variants failed format validation after 2 attempts (renderDigest threw for each one).',
     );
   }
 
