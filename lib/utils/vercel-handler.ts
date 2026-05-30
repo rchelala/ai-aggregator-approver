@@ -19,11 +19,21 @@ export function vercelHandler(
       else headers.set(k, v);
     }
 
+    const bodyText = rawBody.length > 0 ? rawBody.toString('utf-8') : null;
+
     const webReq = new Request(url.toString(), {
       method: req.method ?? 'GET',
       headers,
-      body: rawBody.length > 0 ? rawBody.toString('utf-8') : undefined,
+      body: bodyText ?? undefined,
     });
+
+    // Patch body readers: undici's Request body stream is unreliable when
+    // constructed from raw bytes. We've already read the bytes, so serve them
+    // directly from the pre-read string.
+    if (bodyText !== null) {
+      Object.defineProperty(webReq, 'text', { value: () => Promise.resolve(bodyText) });
+      Object.defineProperty(webReq, 'json', { value: () => Promise.resolve(JSON.parse(bodyText)) });
+    }
 
     try {
       const response = await handler(webReq);
