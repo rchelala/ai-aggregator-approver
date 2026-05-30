@@ -32,9 +32,9 @@ export type AgentType = z.infer<typeof AgentTypeSchema>;
 // =====================================================================
 
 export const ResearchItemSchema = z.object({
-  headline: z.string().min(1).max(200),
+  headline: z.string().min(1),
   source_url: z.string().url(),
-  why_matters_hint: z.string().min(1).max(300),
+  why_matters_hint: z.string().min(1),
   published_at: z.string().optional(),
 });
 export type ResearchItem = z.infer<typeof ResearchItemSchema>;
@@ -49,8 +49,8 @@ export type ResearchOutput = z.infer<typeof ResearchOutputSchema>;
 // =====================================================================
 
 export const BulletSchema = z.object({
-  headline: z.string().min(1).max(120),
-  take: z.string().min(1).max(120),
+  headline: z.string().min(1),
+  take: z.string().min(1),
   source_url: z.string().url().optional(),
 });
 export type Bullet = z.infer<typeof BulletSchema>;
