@@ -40,7 +40,7 @@ export async function tweet(text: string): Promise<{ tweet_id: string; url: stri
   }
 
   // Dry-run mode — skip real API call
-  if (process.env['DRY_RUN'] === 'true') {
+  if (['true', '1', 'yes'].includes((process.env['DRY_RUN'] ?? '').toLowerCase())) {
     const fakeId = randomUUID();
     console.log('[twitter] DRY_RUN — skipping real post. Text:', text);
     return {
