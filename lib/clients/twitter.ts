@@ -16,10 +16,10 @@ export class TwitterDuplicateError extends Error {
 }
 
 function getClient(): TwitterApi {
-  const apiKey = process.env['TWITTER_API_KEY'];
-  const apiSecret = process.env['TWITTER_API_SECRET'];
-  const accessToken = process.env['TWITTER_ACCESS_TOKEN'];
-  const accessSecret = process.env['TWITTER_ACCESS_SECRET'];
+  const apiKey = process.env['TWITTER_API_KEY']?.trim();
+  const apiSecret = process.env['TWITTER_API_SECRET']?.trim();
+  const accessToken = process.env['TWITTER_ACCESS_TOKEN']?.trim();
+  const accessSecret = process.env['TWITTER_ACCESS_SECRET']?.trim();
 
   if (!apiKey) throw new Error('Missing env var: TWITTER_API_KEY');
   if (!apiSecret) throw new Error('Missing env var: TWITTER_API_SECRET');
