@@ -66,6 +66,12 @@ export async function tweet(text: string): Promise<{ tweet_id: string; url: stri
         );
       }
 
+      if (err.code === 402) {
+        throw new Error(
+          'Twitter API returned 402 Payment Required — the free X API tier does not allow posting. Upgrade to Basic ($100/mo) at developer.twitter.com.',
+        );
+      }
+
       if (err.code === 403) {
         // Duplicate content error code from Twitter API
         const twitterCode = err.data?.detail ?? err.message ?? '';
